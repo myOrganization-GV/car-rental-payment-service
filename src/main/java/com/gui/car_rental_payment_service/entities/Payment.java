@@ -18,17 +18,15 @@ public class Payment {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID paymentId;
-    @NotNull
     private UUID bookingId;
-    @NotNull
     private UUID carId;
 
     private UUID userId;
 
-    private String userName;
 
     private BigDecimal amount;
 
+    @Enumerated(EnumType.STRING)
     private PaymentStatus paymentStatus;
 
     private PaymentMethod paymentMethod;
@@ -41,4 +39,94 @@ public class Payment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+
+    public Payment() {
+    }
+
+
+    public Payment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, BigDecimal amount, PaymentStatus paymentStatus, PaymentMethod paymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this.paymentId = paymentId;
+        this.bookingId = bookingId;
+        this.carId = carId;
+        this.userId = userId;
+        this.amount = amount;
+        this.paymentStatus = paymentStatus;
+        this.paymentMethod = paymentMethod;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+
+    public UUID getPaymentId() {
+        return paymentId;
+    }
+
+    public void setPaymentId(UUID paymentId) {
+        this.paymentId = paymentId;
+    }
+
+    public UUID getBookingId() {
+        return bookingId;
+    }
+
+    public void setBookingId(UUID bookingId) {
+        this.bookingId = bookingId;
+    }
+
+    public UUID getCarId() {
+        return carId;
+    }
+
+    public void setCarId(UUID carId) {
+        this.carId = carId;
+    }
+
+    public UUID getUserId() {
+        return userId;
+    }
+
+    public void setUserId(UUID userId) {
+        this.userId = userId;
+    }
+
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public PaymentStatus getPaymentStatus() {
+        return paymentStatus;
+    }
+
+    public void setPaymentStatus(PaymentStatus paymentStatus) {
+        this.paymentStatus = paymentStatus;
+    }
+
+    public PaymentMethod getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(PaymentMethod paymentMethod) {
+        this.paymentMethod = paymentMethod;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }
