@@ -1,10 +1,19 @@
 package com.gui.car_rental_payment_service.services;
 
+import com.gui.car_rental_common.dtos.PaymentDto;
 import com.gui.car_rental_common.events.payment.PaymentCreatedEvent;
 import com.gui.car_rental_common.events.payment.PaymentCreationFailedEvent;
-import com.gui.car_rental_payment_service.entities.Payment;
-import com.gui.car_rental_payment_service.enums.PaymentMethod;
+import com.gui.car_rental_payment_service.entities.MyPayment;
+import com.gui.car_rental_payment_service.enums.MyPaymentMethod;
+import com.gui.car_rental_payment_service.enums.MyPaymentStatus;
 import com.gui.car_rental_payment_service.repositories.PaymentRepository;
+import com.mercadopago.client.common.IdentificationRequest;
+import com.mercadopago.client.payment.PaymentClient;
+import com.mercadopago.client.payment.PaymentCreateRequest;
+import com.mercadopago.client.payment.PaymentPayerRequest;
+import com.mercadopago.exceptions.MPApiException;
+import com.mercadopago.exceptions.MPException;
+import com.mercadopago.resources.payment.Payment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaHandler;
@@ -12,6 +21,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import com.gui.car_rental_common.commands.PaymentCreationCommand;
+
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,15 +42,15 @@ public class PaymentService {
     }
 
 
-    public Optional<Payment> getPaymentById(UUID paymentId) {return paymentRepository.findById(paymentId);}
+    public Optional<MyPayment> getPaymentById(UUID paymentId) {return paymentRepository.findById(paymentId);}
 
 
-    public List<Payment> getAllPayments() {
+    public List<MyPayment> getAllPayments() {
         return paymentRepository.findAll();
     }
 
-    public Payment savePayment(Payment payment) {
-        return paymentRepository.save(payment);
+    public MyPayment savePayment(MyPayment myPayment) {
+        return paymentRepository.save(myPayment);
     }
 
     public void deletePaymentById(UUID paymentId) {
@@ -47,19 +58,42 @@ public class PaymentService {
     }
 
     @KafkaHandler
-    public Payment consumePaymentCreationCommand(PaymentCreationCommand command){
+    public MyPayment consumePaymentCreationCommand(PaymentCreationCommand command){
 
         try {
-            Payment payment = new Payment();
-            payment.setPaymentMethod(PaymentMethod.valueOf(command.getBookingDto().getPaymentDto().getPaymentMethod()));
-            Payment savedPayment= paymentRepository.save(payment);
+            MyPayment myPayment = new MyPayment();
+            String paymentMethod = command.getBookingDto().getPaymentDto().getPaymentMethod();
+            myPayment.setMyPaymentMethod(MyPaymentMethod.valueOf(command.getBookingDto().getPaymentDto().getPaymentMethod()));
+            System.out.println("Payment Method: " + command.getBookingDto().getPaymentDto().getPaymentMethod());
+            Payment MPPayment;
+            MyPayment savedMyPayment;
+            switch (paymentMethod){
+                case "PIX":
+                    PaymentDto paymentDto = command.getBookingDto().getPaymentDto();
+                    MPPayment = createPixPayment(command.getBookingDto().getAmount()
+                        ,"pix payment for car rental", paymentDto.getPayerEmail(),
+                            paymentDto.getPayerFirstName(), paymentDto.getPayerLastName(),
+                            paymentDto.getPayerIdentificationType(), paymentDto.getPayerIdentificationNumber(), command.getSagaTransactionId().toString()
 
+                    );
+                    myPayment.setBookingId(command.getBookingDto().getBookingId());
+                    myPayment.setCarId(command.getBookingDto().getCarId());
+                    myPayment.setUserId(command.getBookingDto().getUserId());
+                    myPayment.setAmount(MPPayment.getTransactionAmount());
+                    myPayment.setMercadoPagoId(MPPayment.getId().toString());
+                    myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
+                    savedMyPayment = paymentRepository.save(myPayment);
+                    break;
+
+                default:
+                    throw new IllegalArgumentException("Unsupported payment method: " + paymentMethod);
+            }
             PaymentCreatedEvent paymentCreatedEvent = new PaymentCreatedEvent(
                     command.getSagaTransactionId(), command.getBookingDto());
             kafkaTemplate.send("payment-service-events", paymentCreatedEvent);
             logger.info("Published PaymentCreatedEvent for Saga ID: {}", command.getSagaTransactionId());
 
-            return savedPayment;
+            return savedMyPayment;
         } catch (Exception e) {
             logger.error("Error processing PaymentCreationCommand for Saga ID {}: {}",
                     command.getSagaTransactionId(), e.getMessage());
@@ -73,5 +107,51 @@ public class PaymentService {
 
     }
 
+
+    public Payment createPixPayment(BigDecimal amount, String description, String payerEmail,
+                                    String payerFirstName, String payerLastName, String payerIdentificationType,
+                                    String payerIdentificationNumber, String externalReference)  throws MPException, MPApiException  {
+
+        IdentificationRequest identificationRequest = IdentificationRequest.builder()
+                .type(payerIdentificationType)
+                .number(payerIdentificationNumber)
+                .build();
+
+        PaymentPayerRequest payerRequest = PaymentPayerRequest.builder()
+                .email(payerEmail)
+                .firstName(payerFirstName)
+                .lastName(payerLastName)
+                .identification(identificationRequest)
+                .build();
+
+
+        PaymentCreateRequest paymentCreateRequest =
+                PaymentCreateRequest.builder()
+                        .transactionAmount(amount)
+                        .description(description)
+                        .paymentMethodId("pix")
+                        .payer(payerRequest)
+                        .externalReference(externalReference)
+                        .installments(1)
+                        .build();
+
+        try {
+            PaymentClient paymentClient = new PaymentClient();
+            Payment payment = paymentClient.create(paymentCreateRequest);
+            System.out.println("Pix Payment Created: " + payment.getId());
+            System.out.println("Status: " + payment.getStatus());
+            return payment;
+        } catch (MPApiException e) {
+            System.err.println("Mercado Pago API Exception: " + e.getApiResponse().getContent());
+            throw e;
+        } catch (MPException e) {
+            System.err.println("Mercado Pago Exception: " + e.getMessage());
+            throw e;
+        }
+    }
+
+    public void createCardPayment(){
+        logger.info("creating card payment...");
+    }
 
 }

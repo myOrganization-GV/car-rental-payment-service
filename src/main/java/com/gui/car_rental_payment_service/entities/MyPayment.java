@@ -1,9 +1,8 @@
 package com.gui.car_rental_payment_service.entities;
 
-import com.gui.car_rental_payment_service.enums.PaymentMethod;
-import com.gui.car_rental_payment_service.enums.PaymentStatus;
+import com.gui.car_rental_payment_service.enums.MyPaymentMethod;
+import com.gui.car_rental_payment_service.enums.MyPaymentStatus;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -13,7 +12,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "payments")
-public class Payment {
+public class MyPayment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -22,14 +21,18 @@ public class Payment {
     private UUID carId;
 
     private UUID userId;
-
-
+    @Column(name = "mercado_pago_id")
+    private String mercadoPagoId;
     private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
-    private PaymentStatus paymentStatus;
+    @Column(name = "payment_status")
+    private MyPaymentStatus myPaymentStatus;
 
-    private PaymentMethod paymentMethod;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method")
+    private MyPaymentMethod myPaymentMethod;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
@@ -39,23 +42,22 @@ public class Payment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-
-    public Payment() {
-    }
-
-
-    public Payment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, BigDecimal amount, PaymentStatus paymentStatus, PaymentMethod paymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public MyPayment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, String mercadoPagoId, BigDecimal amount, MyPaymentStatus myPaymentStatus, MyPaymentMethod myPaymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.paymentId = paymentId;
         this.bookingId = bookingId;
         this.carId = carId;
         this.userId = userId;
+        this.mercadoPagoId = mercadoPagoId;
         this.amount = amount;
-        this.paymentStatus = paymentStatus;
-        this.paymentMethod = paymentMethod;
+        this.myPaymentStatus = myPaymentStatus;
+        this.myPaymentMethod = myPaymentMethod;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
+
+    public MyPayment() {
+    }
 
     public UUID getPaymentId() {
         return paymentId;
@@ -89,6 +91,13 @@ public class Payment {
         this.userId = userId;
     }
 
+    public String getMercadoPagoId() {
+        return mercadoPagoId;
+    }
+
+    public void setMercadoPagoId(String mercadoPagoId) {
+        this.mercadoPagoId = mercadoPagoId;
+    }
 
     public BigDecimal getAmount() {
         return amount;
@@ -98,20 +107,20 @@ public class Payment {
         this.amount = amount;
     }
 
-    public PaymentStatus getPaymentStatus() {
-        return paymentStatus;
+    public MyPaymentStatus getMyPaymentStatus() {
+        return myPaymentStatus;
     }
 
-    public void setPaymentStatus(PaymentStatus paymentStatus) {
-        this.paymentStatus = paymentStatus;
+    public void setMyPaymentStatus(MyPaymentStatus myPaymentStatus) {
+        this.myPaymentStatus = myPaymentStatus;
     }
 
-    public PaymentMethod getPaymentMethod() {
-        return paymentMethod;
+    public MyPaymentMethod getMyPaymentMethod() {
+        return myPaymentMethod;
     }
 
-    public void setPaymentMethod(PaymentMethod paymentMethod) {
-        this.paymentMethod = paymentMethod;
+    public void setMyPaymentMethod(MyPaymentMethod myPaymentMethod) {
+        this.myPaymentMethod = myPaymentMethod;
     }
 
     public LocalDateTime getCreatedAt() {
