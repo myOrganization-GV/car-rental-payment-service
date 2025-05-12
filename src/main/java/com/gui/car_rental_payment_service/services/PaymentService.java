@@ -11,6 +11,7 @@ import com.mercadopago.client.common.IdentificationRequest;
 import com.mercadopago.client.payment.PaymentClient;
 import com.mercadopago.client.payment.PaymentCreateRequest;
 import com.mercadopago.client.payment.PaymentPayerRequest;
+import com.mercadopago.core.MPRequestOptions;
 import com.mercadopago.exceptions.MPApiException;
 import com.mercadopago.exceptions.MPException;
 import com.mercadopago.resources.payment.Payment;
@@ -23,9 +24,7 @@ import org.springframework.stereotype.Service;
 import com.gui.car_rental_common.commands.PaymentCreationCommand;
 
 import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @KafkaListener(topics = "rental-saga-payment-commands", groupId = "payment-service-group")
@@ -65,12 +64,13 @@ public class PaymentService {
             String paymentMethod = command.getBookingDto().getPaymentDto().getPaymentMethod();
             myPayment.setMyPaymentMethod(MyPaymentMethod.valueOf(command.getBookingDto().getPaymentDto().getPaymentMethod()));
             System.out.println("Payment Method: " + command.getBookingDto().getPaymentDto().getPaymentMethod());
-            Payment MPPayment;
+            Payment mercadoPagoPayment;
             MyPayment savedMyPayment;
+            PaymentDto paymentDto = command.getBookingDto().getPaymentDto();
             switch (paymentMethod){
                 case "PIX":
-                    PaymentDto paymentDto = command.getBookingDto().getPaymentDto();
-                    MPPayment = createPixPayment(command.getBookingDto().getAmount()
+
+                    mercadoPagoPayment = createPixPayment(command.getBookingDto().getAmount()
                         ,"pix payment for car rental", paymentDto.getPayerEmail(),
                             paymentDto.getPayerFirstName(), paymentDto.getPayerLastName(),
                             paymentDto.getPayerIdentificationType(), paymentDto.getPayerIdentificationNumber(), command.getSagaTransactionId().toString()
@@ -79,12 +79,25 @@ public class PaymentService {
                     myPayment.setBookingId(command.getBookingDto().getBookingId());
                     myPayment.setCarId(command.getBookingDto().getCarId());
                     myPayment.setUserId(command.getBookingDto().getUserId());
-                    myPayment.setAmount(MPPayment.getTransactionAmount());
-                    myPayment.setMercadoPagoId(MPPayment.getId().toString());
+                    myPayment.setAmount(mercadoPagoPayment.getTransactionAmount());
+                    myPayment.setMercadoPagoId(mercadoPagoPayment.getId().toString());
                     myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
                     savedMyPayment = paymentRepository.save(myPayment);
                     break;
+                case "CREDIT_CARD":
+                    mercadoPagoPayment = createCardPayment(command.getBookingDto().getPaymentDto().getCardToken(),
+                                            command.getBookingDto().getAmount(), "car rental card payment", "payment-id-1",
+                            paymentDto.getPayerEmail(), paymentDto.getPayerFirstName(), paymentDto.getPayerLastName(),
+                            paymentDto.getPayerIdentificationType(), paymentDto.getPayerIdentificationNumber());
 
+                    myPayment.setBookingId(command.getBookingDto().getBookingId());
+                    myPayment.setCarId(command.getBookingDto().getCarId());
+                    myPayment.setUserId(command.getBookingDto().getUserId());
+                    myPayment.setAmount(mercadoPagoPayment.getTransactionAmount());
+                    myPayment.setMercadoPagoId(mercadoPagoPayment.getId().toString());
+                    myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
+                    savedMyPayment = paymentRepository.save(myPayment);
+                    break;
                 default:
                     throw new IllegalArgumentException("Unsupported payment method: " + paymentMethod);
             }
@@ -150,8 +163,60 @@ public class PaymentService {
         }
     }
 
-    public void createCardPayment(){
-        logger.info("creating card payment...");
+
+
+    public Payment createCardPayment(
+            String token, BigDecimal transactionAmount, String description, String externalReference,
+            String email, String firstName,String lastName, String identificationType,
+            String identificationNumber
+    ) throws MPException, MPApiException{
+
+        String idempotencyKey = UUID.randomUUID().toString();
+        Map<String, String> customHeaders = new HashMap<>();
+        customHeaders.put("x-idempotency-key", idempotencyKey);
+
+        MPRequestOptions requestOptions = MPRequestOptions.builder()
+                .customHeaders(customHeaders)
+                .build();
+
+        PaymentPayerRequest payerRequest =
+                PaymentPayerRequest.builder()
+                        .email(email)
+                        .firstName(firstName)
+                        .lastName(lastName)
+                        .identification(
+                                IdentificationRequest.builder()// Use SDK IdentificationRequest
+                                        .type(identificationType)
+                                        .number(identificationNumber)
+                                        .build())
+                        .build();
+
+        PaymentCreateRequest paymentCreateRequest =
+                PaymentCreateRequest.builder()
+                        .token(token)// Use the CardToken from the frontend
+                        .transactionAmount(transactionAmount)
+                        .description(description)
+                        .installments(1)
+                        .externalReference(externalReference) // my internal order ID
+                        .payer(payerRequest)
+                        .build();
+
+        try {
+
+            PaymentClient paymentClient = new PaymentClient();
+            logger.info("Sending create card payment request with idempotency key: " + idempotencyKey);
+            Payment payment = paymentClient.create(paymentCreateRequest, requestOptions);
+            logger.info("Card Payment Created: " + payment.getId());
+            logger.info("Status: " + payment.getStatus());
+
+            return payment;
+        } catch (MPApiException e) {
+            System.err.println("Mercado Pago API Exception creating card payment: " + e.getApiResponse().getContent());
+            throw e;
+        } catch (MPException e) {
+            System.err.println("Mercado Pago Exception creating card payment: " + e.getMessage());
+            throw e;
+        }
     }
 
 }
