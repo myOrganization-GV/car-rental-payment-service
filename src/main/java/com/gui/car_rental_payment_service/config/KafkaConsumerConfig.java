@@ -1,4 +1,4 @@
-package com.gui.car_rental_payment_service.Config;
+package com.gui.car_rental_payment_service.config;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;

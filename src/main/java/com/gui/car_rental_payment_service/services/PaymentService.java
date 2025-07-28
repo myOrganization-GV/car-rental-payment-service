@@ -3,6 +3,7 @@ package com.gui.car_rental_payment_service.services;
 import com.gui.car_rental_common.dtos.PaymentDto;
 import com.gui.car_rental_common.events.payment.PaymentCreatedEvent;
 import com.gui.car_rental_common.events.payment.PaymentCreationFailedEvent;
+import com.gui.car_rental_payment_service.dtos.PixPaymentDto;
 import com.gui.car_rental_payment_service.entities.MyPayment;
 import com.gui.car_rental_payment_service.enums.MyPaymentMethod;
 import com.gui.car_rental_payment_service.enums.MyPaymentStatus;
@@ -56,6 +57,35 @@ public class PaymentService {
         paymentRepository.deleteById(paymentId);
     }
 
+    public PixPaymentDto getPixPaymentDataDto( UUID sagaId) throws MPException, MPApiException {
+        try {
+            PaymentClient paymentClient = new PaymentClient();
+
+            Optional<MyPayment> myPaymentOptional = paymentRepository.findBySagaId(sagaId);
+            if(myPaymentOptional.isEmpty()){
+                return null;
+            }
+            MyPayment myPayment = myPaymentOptional.get();
+            Payment payment = paymentClient.get(Long.parseLong(myPayment.getMercadoPagoId()));
+
+            PixPaymentDto pixPaymentDto = new PixPaymentDto();
+
+            String qrCode = payment.getPointOfInteraction().getTransactionData().getQrCode();
+            String qrCodeBase64 = payment.getPointOfInteraction().getTransactionData().getQrCodeBase64();
+
+            pixPaymentDto.setQrCode(qrCode);
+            pixPaymentDto.setQrCodeBase64(qrCodeBase64);
+            pixPaymentDto.setSagaId(sagaId);
+            return pixPaymentDto;
+        } catch (MPApiException e) {
+            System.err.println("Mercado Pago API Exception: " + e.getApiResponse().getContent());
+            throw e;
+        } catch (MPException e) {
+            System.err.println("Mercado Pago Exception: " + e.getMessage());
+            throw e;
+        }
+    }
+
     @KafkaHandler
     public MyPayment consumePaymentCreationCommand(PaymentCreationCommand command){
 
@@ -82,11 +112,12 @@ public class PaymentService {
                     myPayment.setAmount(mercadoPagoPayment.getTransactionAmount());
                     myPayment.setMercadoPagoId(mercadoPagoPayment.getId().toString());
                     myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
+                    myPayment.setSagaId(command.getSagaTransactionId());
                     savedMyPayment = paymentRepository.save(myPayment);
                     break;
                 case "CREDIT_CARD":
                     mercadoPagoPayment = createCardPayment(command.getBookingDto().getPaymentDto().getCardToken(),
-                                            command.getBookingDto().getAmount(), "car rental card payment", "payment-id-1",
+                                            command.getBookingDto().getAmount(), "car rental card payment", command.getBookingDto().getBookingId().toString(),
                             paymentDto.getPayerEmail(), paymentDto.getPayerFirstName(), paymentDto.getPayerLastName(),
                             paymentDto.getPayerIdentificationType(), paymentDto.getPayerIdentificationNumber());
 
@@ -185,7 +216,7 @@ public class PaymentService {
                         .firstName(firstName)
                         .lastName(lastName)
                         .identification(
-                                IdentificationRequest.builder()// Use SDK IdentificationRequest
+                                IdentificationRequest.builder()// Use SDK IdentificationRequest meaning documents numbers and types.
                                         .type(identificationType)
                                         .number(identificationNumber)
                                         .build())
@@ -197,7 +228,7 @@ public class PaymentService {
                         .transactionAmount(transactionAmount)
                         .description(description)
                         .installments(1)
-                        .externalReference(externalReference) // my internal order ID
+                        .externalReference(externalReference) // my internal order ID to match my own database
                         .payer(payerRequest)
                         .build();
 
@@ -218,5 +249,6 @@ public class PaymentService {
             throw e;
         }
     }
+
 
 }

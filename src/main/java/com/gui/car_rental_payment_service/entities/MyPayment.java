@@ -23,6 +23,9 @@ public class MyPayment {
     private UUID userId;
     @Column(name = "mercado_pago_id")
     private String mercadoPagoId;
+
+    private UUID sagaId;
+
     private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
@@ -42,12 +45,13 @@ public class MyPayment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    public MyPayment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, String mercadoPagoId, BigDecimal amount, MyPaymentStatus myPaymentStatus, MyPaymentMethod myPaymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public MyPayment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, String mercadoPagoId, UUID sagaId, BigDecimal amount, MyPaymentStatus myPaymentStatus, MyPaymentMethod myPaymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.paymentId = paymentId;
         this.bookingId = bookingId;
         this.carId = carId;
         this.userId = userId;
         this.mercadoPagoId = mercadoPagoId;
+        this.sagaId = sagaId;
         this.amount = amount;
         this.myPaymentStatus = myPaymentStatus;
         this.myPaymentMethod = myPaymentMethod;
@@ -55,6 +59,13 @@ public class MyPayment {
         this.updatedAt = updatedAt;
     }
 
+    public UUID getSagaId() {
+        return sagaId;
+    }
+
+    public void setSagaId(UUID sagaId) {
+        this.sagaId = sagaId;
+    }
 
     public MyPayment() {
     }
