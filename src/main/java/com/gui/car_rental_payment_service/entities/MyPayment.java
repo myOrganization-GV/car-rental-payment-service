@@ -20,7 +20,6 @@ public class MyPayment {
     private UUID bookingId;
     private UUID carId;
 
-    private UUID userId;
     @Column(name = "mercado_pago_id")
     private String mercadoPagoId;
 
@@ -45,11 +44,14 @@ public class MyPayment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    public MyPayment(UUID paymentId, UUID bookingId, UUID carId, UUID userId, String mercadoPagoId, UUID sagaId, BigDecimal amount, MyPaymentStatus myPaymentStatus, MyPaymentMethod myPaymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    private String mockQrCode;
+
+    @Column(columnDefinition = "TEXT")
+    private String mockQrCodeBase64;
+    public MyPayment(UUID paymentId, UUID bookingId, UUID carId, String mercadoPagoId, UUID sagaId, BigDecimal amount, MyPaymentStatus myPaymentStatus, MyPaymentMethod myPaymentMethod, LocalDateTime createdAt, LocalDateTime updatedAt, String mockQrCode , String mockQrCodeBase64) {
         this.paymentId = paymentId;
         this.bookingId = bookingId;
         this.carId = carId;
-        this.userId = userId;
         this.mercadoPagoId = mercadoPagoId;
         this.sagaId = sagaId;
         this.amount = amount;
@@ -57,6 +59,24 @@ public class MyPayment {
         this.myPaymentMethod = myPaymentMethod;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.mockQrCode = mockQrCode;
+        this.mockQrCodeBase64 = mockQrCodeBase64;
+    }
+
+    public String getMockQrCode() {
+        return mockQrCode;
+    }
+
+    public void setMockQrCode(String mockQrCode) {
+        this.mockQrCode = mockQrCode;
+    }
+
+    public String getMockQrCodeBase64() {
+        return mockQrCodeBase64;
+    }
+
+    public void setMockQrCodeBase64(String mockQrCodeBase64) {
+        this.mockQrCodeBase64 = mockQrCodeBase64;
     }
 
     public UUID getSagaId() {
@@ -92,14 +112,6 @@ public class MyPayment {
 
     public void setCarId(UUID carId) {
         this.carId = carId;
-    }
-
-    public UUID getUserId() {
-        return userId;
-    }
-
-    public void setUserId(UUID userId) {
-        this.userId = userId;
     }
 
     public String getMercadoPagoId() {

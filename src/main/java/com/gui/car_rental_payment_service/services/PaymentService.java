@@ -3,6 +3,7 @@ package com.gui.car_rental_payment_service.services;
 import com.gui.car_rental_common.dtos.PaymentDto;
 import com.gui.car_rental_common.events.payment.PaymentCreatedEvent;
 import com.gui.car_rental_common.events.payment.PaymentCreationFailedEvent;
+import com.gui.car_rental_payment_service.dtos.MockPixResult;
 import com.gui.car_rental_payment_service.dtos.PixPaymentDto;
 import com.gui.car_rental_payment_service.entities.MyPayment;
 import com.gui.car_rental_payment_service.enums.MyPaymentMethod;
@@ -18,11 +19,14 @@ import com.mercadopago.exceptions.MPException;
 import com.mercadopago.resources.payment.Payment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.gui.car_rental_common.commands.PaymentCreationCommand;
+import com.gui.car_rental_payment_service.entities.ProcessedMessage;
+import com.gui.car_rental_payment_service.repositories.ProcessedMessageRepository;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -32,13 +36,21 @@ import java.util.*;
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-
+    private final OutboxService outboxService;
+    private final ProcessedMessageRepository processedMessageRepository;
+    @Value("${app.base-url}")
+    private String baseUrl;
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
-    public PaymentService(PaymentRepository paymentRepository, KafkaTemplate<String, Object> kafkaTemplate) {
+    private static final String PAYMENT_EVENTS_TOPIC = "payment-service-events";
+    private static final String PAYMENT_CREATION = "PAYMENT_CREATION";
+
+    public PaymentService(PaymentRepository paymentRepository,
+                          OutboxService outboxService,
+                          ProcessedMessageRepository processedMessageRepository) {
         this.paymentRepository = paymentRepository;
-        this.kafkaTemplate = kafkaTemplate;
+        this.outboxService = outboxService;
+        this.processedMessageRepository = processedMessageRepository;
     }
 
 
@@ -58,14 +70,22 @@ public class PaymentService {
     }
 
     public PixPaymentDto getPixPaymentDataDto( UUID sagaId) throws MPException, MPApiException {
+
+        Optional<MyPayment> myPaymentOptional = paymentRepository.findBySagaId(sagaId);
+        if(myPaymentOptional.isEmpty()){
+            return null;
+        }
+
+        MyPayment myPayment = myPaymentOptional.get();
+        if (myPayment.getMockQrCode() != null) {
+            PixPaymentDto dto = new PixPaymentDto();
+            dto.setQrCode(myPayment.getMockQrCode());
+            dto.setQrCodeBase64(myPayment.getMockQrCodeBase64());
+            dto.setSagaId(sagaId);
+            return dto;
+        }
         try {
             PaymentClient paymentClient = new PaymentClient();
-
-            Optional<MyPayment> myPaymentOptional = paymentRepository.findBySagaId(sagaId);
-            if(myPaymentOptional.isEmpty()){
-                return null;
-            }
-            MyPayment myPayment = myPaymentOptional.get();
             Payment payment = paymentClient.get(Long.parseLong(myPayment.getMercadoPagoId()));
 
             PixPaymentDto pixPaymentDto = new PixPaymentDto();
@@ -85,9 +105,21 @@ public class PaymentService {
             throw e;
         }
     }
+    public void confirmMockPixPayment(MyPayment payment) {
+        payment.setMyPaymentStatus(MyPaymentStatus.COMPLETED);
+        paymentRepository.save(payment);
 
+        logger.info("Mock PIX confirmed and event published for sagaId: {}", payment.getSagaId());
+    }
+    @Transactional
     @KafkaHandler
     public MyPayment consumePaymentCreationCommand(PaymentCreationCommand command){
+
+        UUID sagaId = command.getSagaTransactionId();
+        if (!claim(sagaId, PAYMENT_CREATION)) {
+            logger.info("Duplicate PaymentCreationCommand for saga {} — skipping", sagaId);
+            return null;
+        }
 
         try {
             MyPayment myPayment = new MyPayment();
@@ -99,20 +131,18 @@ public class PaymentService {
             PaymentDto paymentDto = command.getBookingDto().getPaymentDto();
             switch (paymentMethod){
                 case "PIX":
-
-                    mercadoPagoPayment = createPixPayment(command.getBookingDto().getAmount()
-                        ,"pix payment for car rental", paymentDto.getPayerEmail(),
-                            paymentDto.getPayerFirstName(), paymentDto.getPayerLastName(),
-                            paymentDto.getPayerIdentificationType(), paymentDto.getPayerIdentificationNumber(), command.getSagaTransactionId().toString()
-
+                    MockPixResult mockPix = MockPixService.generate(
+                            command.getSagaTransactionId(), baseUrl
                     );
+
                     myPayment.setBookingId(command.getBookingDto().getBookingId());
                     myPayment.setCarId(command.getBookingDto().getCarId());
-                    myPayment.setUserId(command.getBookingDto().getUserId());
-                    myPayment.setAmount(mercadoPagoPayment.getTransactionAmount());
-                    myPayment.setMercadoPagoId(mercadoPagoPayment.getId().toString());
+                    myPayment.setAmount(command.getBookingDto().getAmount());
+                    myPayment.setMercadoPagoId("MOCK-PIX-" + command.getSagaTransactionId());
                     myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
                     myPayment.setSagaId(command.getSagaTransactionId());
+                    myPayment.setMockQrCode(mockPix.getQrCode());
+                    myPayment.setMockQrCodeBase64(mockPix.getQrCodeBase64());
                     savedMyPayment = paymentRepository.save(myPayment);
                     break;
                 case "CREDIT_CARD":
@@ -123,7 +153,6 @@ public class PaymentService {
 
                     myPayment.setBookingId(command.getBookingDto().getBookingId());
                     myPayment.setCarId(command.getBookingDto().getCarId());
-                    myPayment.setUserId(command.getBookingDto().getUserId());
                     myPayment.setAmount(mercadoPagoPayment.getTransactionAmount());
                     myPayment.setMercadoPagoId(mercadoPagoPayment.getId().toString());
                     myPayment.setMyPaymentStatus(MyPaymentStatus.PENDING);
@@ -134,8 +163,8 @@ public class PaymentService {
             }
             PaymentCreatedEvent paymentCreatedEvent = new PaymentCreatedEvent(
                     command.getSagaTransactionId(), command.getBookingDto());
-            kafkaTemplate.send("payment-service-events", paymentCreatedEvent);
-            logger.info("Published PaymentCreatedEvent for Saga ID: {}", command.getSagaTransactionId());
+            outboxService.saveEvent(PAYMENT_EVENTS_TOPIC, paymentCreatedEvent);
+            logger.info("Queued PaymentCreatedEvent to outbox for Saga ID: {}", command.getSagaTransactionId());
 
             return savedMyPayment;
         } catch (Exception e) {
@@ -143,9 +172,9 @@ public class PaymentService {
                     command.getSagaTransactionId(), e.getMessage());
             PaymentCreationFailedEvent failedEvent = new PaymentCreationFailedEvent(command.getSagaTransactionId(), command.getBookingDto());
             failedEvent.setMessage("Payment creation failed: " + e.getMessage());
-            kafkaTemplate.send("payment-service-events", failedEvent);
+            outboxService.saveEvent(PAYMENT_EVENTS_TOPIC, failedEvent);
 
-            logger.info("Published PaymentCreationFailedEvent for Saga ID: {}", command.getSagaTransactionId());
+            logger.info("Queued PaymentCreationFailedEvent to outbox for Saga ID: {}", command.getSagaTransactionId());
             return null;
         }
 
@@ -251,4 +280,15 @@ public class PaymentService {
     }
 
 
+    public Optional<MyPayment> getPaymentBySagaId(UUID sagaId) {
+        return paymentRepository.findBySagaId(sagaId);
+    }
+
+    private boolean claim(UUID sagaId, String messageType) {
+        if (processedMessageRepository.existsBySagaIdAndMessageType(sagaId, messageType)) {
+            return false;
+        }
+        processedMessageRepository.save(new ProcessedMessage(sagaId, messageType));
+        return true;
+    }
 }
